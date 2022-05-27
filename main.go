@@ -4,18 +4,60 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
+
+	"github.com/gin-gonic/gin"
 )
 
 type game struct {
-	ID              string   `json:"id"`
-	Lives           int      `json:"lives"`
-	Answer          string   `json:"answer"`
-	LowercaseAnswer string   `json:"lowercase_answer"`
-	LetterGuesses   string   `json:"letter_guesses"`
-	PhraseGuesses   []string `json:"phrase_guesses"`
-	Current         string   `json:"current"`
+	ID              string
+	Lives           int
+	Answer          string
+	LowercaseAnswer string
+	LetterGuesses   string
+	PhraseGuesses   []string
+	Current         string
+}
+
+type servGame struct {
+	ID            string   `json:"id"`
+	Lives         int      `json:"lives"`
+	LetterGuesses string   `json:"letter_guesses"`
+	PhraseGuesses []string `json:"phrase_guesses"`
+	Current       string   `json:"current"`
+}
+
+type endGame struct {
+	ID            string   `json:"id"`
+	Lives         int      `json:"lives"`
+	Answer        string   `json:"answer"`
+	LetterGuesses string   `json:"letter_guesses"`
+	PhraseGuesses []string `json:"phrase_guesses"`
+	Status        string   `json:"status"`
+}
+
+func gameToServGame(g *game) servGame {
+	return servGame{
+		ID:            g.ID,
+		Lives:         g.Lives,
+		LetterGuesses: g.LetterGuesses,
+		PhraseGuesses: g.PhraseGuesses,
+		Current:       g.Current,
+	}
+}
+
+func gameToEndGame(g *game) endGame {
+	status, _ := getGameStatus(g.ID)
+	return endGame{
+		ID:            g.ID,
+		Lives:         g.Lives,
+		Answer:        g.Answer,
+		LetterGuesses: g.LetterGuesses,
+		PhraseGuesses: g.PhraseGuesses,
+		Status:        status,
+	}
 }
 
 var games = []game{}
@@ -59,7 +101,6 @@ func createGame(answer string) *game {
 		LowercaseAnswer: strings.ToLower(answer),
 		Current:         toUnderscores(answer),
 	}
-	games = append(games, g)
 	return &g
 }
 
@@ -159,6 +200,18 @@ func getGameStatus(id string) (string, error) {
 	return "UNFINISHED", nil
 }
 
+func removeGame(id string) error {
+	for i, g := range games {
+		if g.ID == id {
+			before := games[:i]
+			after := games[i+1:]
+			games = append(before, after...)
+			return nil
+		}
+	}
+	return errors.New("Game with ID of " + id + " not found")
+}
+
 func playText() {
 	var err error
 	in := bufio.NewReader(os.Stdin)
@@ -170,6 +223,7 @@ func playText() {
 	}
 
 	g := createGame(ans)
+	games = append(games, *g)
 	for {
 		fmt.Println()
 		fmt.Println(g.Current)
@@ -209,6 +263,92 @@ func playText() {
 	}
 }
 
+func servCreateGame(c *gin.Context) {
+	answer := c.Query("answer")
+	if answer == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "No answer given."})
+		return
+	}
+
+	g := createGame(answer)
+	games = append(games, *g)
+	c.JSON(http.StatusOK, gameToServGame(g))
+}
+
+func servGetGame(c *gin.Context) {
+	id, _ := c.Params.Get("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "No ID given."})
+		return
+	}
+
+	g, err := getGameByID(id)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gameToServGame(g))
+}
+
+func servPlayGame(c *gin.Context) {
+	id := c.PostForm("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "No ID given."})
+		return
+	}
+
+	guess := c.PostForm("guess")
+	if guess == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"message": "No guess given."})
+		return
+	}
+
+	g, err := makeGuess(id, guess)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+	}
+
+	status, _ := getGameStatus(id)
+	switch status {
+	case "WIN":
+		c.JSON(http.StatusOK, gameToEndGame(g))
+		removeGame(id)
+	case "LOSS":
+		c.JSON(http.StatusOK, gameToEndGame(g))
+		removeGame(id)
+	default:
+		c.JSON(http.StatusOK, gameToServGame(g))
+	}
+}
+
+func CORSMiddleware() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		c.Writer.Header().Set("Access-Control-Allow-Origin", "*")
+		c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
+		c.Writer.Header().Set("Access-Control-Allow-Headers", "Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization, accept, origin, Cache-Control, X-Requested-With")
+		c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT")
+
+		if c.Request.Method == "OPTIONS" {
+			c.AbortWithStatus(204)
+			return
+		}
+
+		c.Next()
+	}
+}
+
+func playServer() {
+	serv := gin.Default()
+	serv.Use(CORSMiddleware())
+	serv.SetTrustedProxies(nil)
+	serv.GET("/create", servCreateGame)
+	serv.GET("/game/:id", servGetGame)
+	serv.POST("/play", servPlayGame)
+	serv.Run(":3001")
+}
+
 func main() {
-	playText()
+	// playText()
+	playServer()
 }
