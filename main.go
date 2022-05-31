@@ -111,7 +111,7 @@ func getGameByID(id string) (*game, error) {
 		}
 	}
 
-	return nil, errors.New("Game with ID of " + id + " not found")
+	return nil, errors.New("Game with ID of " + id + " not found.")
 }
 
 func guessLetter(id string, guess string) (*game, error) {
@@ -209,7 +209,7 @@ func removeGame(id string) error {
 			return nil
 		}
 	}
-	return errors.New("Game with ID of " + id + " not found")
+	return errors.New("Game with ID of " + id + " not found.")
 }
 
 func playText() {
@@ -272,6 +272,7 @@ func servCreateGame(c *gin.Context) {
 
 	g := createGame(answer)
 	games = append(games, *g)
+	fmt.Println(games[0].ID, games[0].Answer)
 	c.JSON(http.StatusOK, gameToServGame(g))
 }
 
@@ -284,21 +285,28 @@ func servGetGame(c *gin.Context) {
 
 	g, err := getGameByID(id)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusNotFound, gin.H{"message": err.Error()})
 		return
 	}
 
 	c.JSON(http.StatusOK, gameToServGame(g))
 }
 
+type play struct {
+	Id    string `json:"id"`
+	Guess string `json:"guess"`
+}
+
 func servPlayGame(c *gin.Context) {
-	id := c.PostForm("id")
+	var obj play
+	c.BindJSON(&obj)
+	id := obj.Id
 	if id == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "No ID given."})
 		return
 	}
 
-	guess := c.PostForm("guess")
+	guess := obj.Guess
 	if guess == "" {
 		c.JSON(http.StatusBadRequest, gin.H{"message": "No guess given."})
 		return
@@ -307,16 +315,17 @@ func servPlayGame(c *gin.Context) {
 	g, err := makeGuess(id, guess)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		return
 	}
 
 	status, _ := getGameStatus(id)
 	switch status {
 	case "WIN":
 		c.JSON(http.StatusOK, gameToEndGame(g))
-		removeGame(id)
+		// removeGame(id)
 	case "LOSS":
 		c.JSON(http.StatusOK, gameToEndGame(g))
-		removeGame(id)
+		// removeGame(id)
 	default:
 		c.JSON(http.StatusOK, gameToServGame(g))
 	}
