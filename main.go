@@ -289,7 +289,17 @@ func servGetGame(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, gameToServGame(g))
+	status, _ := getGameStatus(id)
+	switch status {
+	case "WIN":
+		c.JSON(http.StatusOK, gameToEndGame(g))
+		// removeGame(id)
+	case "LOSS":
+		c.JSON(http.StatusOK, gameToEndGame(g))
+		// removeGame(id)
+	default:
+		c.JSON(http.StatusOK, gameToServGame(g))
+	}
 }
 
 type play struct {
@@ -314,7 +324,7 @@ func servPlayGame(c *gin.Context) {
 
 	g, err := makeGuess(id, guess)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"message": err.Error()})
+		c.JSON(http.StatusOK, gin.H{"message": err.Error()})
 		return
 	}
 
